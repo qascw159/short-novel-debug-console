@@ -25,6 +25,7 @@ function proxyApi(request, response) {
     upstreamUrl,
     { method: request.method, headers },
     (upstreamResponse) => {
+      // 直接转发上游字节；在这里聚合会让 novel_delta 退化为延迟的整段响应。
       response.writeHead(upstreamResponse.statusCode || 502, {
         ...upstreamResponse.headers,
         "x-accel-buffering": "no",
@@ -34,6 +35,7 @@ function proxyApi(request, response) {
   );
 
   upstreamRequest.on("error", (error) => {
+    // SSE 头已发送后只能关闭连接，不能再向事件流拼接一个 JSON 错误响应。
     if (response.headersSent) {
       response.destroy(error);
       return;
@@ -42,6 +44,7 @@ function proxyApi(request, response) {
     response.end(JSON.stringify({ error: "API proxy failed", message: error.message }));
   });
 
+  // 透传浏览器取消，让后端继续取消上游模型流，避免无效生成。
   request.on("aborted", () => upstreamRequest.destroy());
   request.pipe(upstreamRequest);
 }
@@ -90,4 +93,3 @@ server.listen(port, host, () => {
   console.log(`Short Novel Debug Console: http://${host}:${port}`);
   console.log(`API proxy target: ${apiTarget.origin}`);
 });
-
