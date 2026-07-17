@@ -11,6 +11,7 @@
 - 六类系统提示词查看、临时调试和持久化
 - 用户画像与知识图谱查看
 - 图谱节点和关系的新增、查询、修改、删除与整图清空
+- 从下拉框选择已有节点或关系直接编辑，类型候选可选也可自定义
 - 每日限额和强制重新生成调试
 - 原始 SSE 事件查看
 
@@ -59,12 +60,14 @@ flowchart LR
 - `server.mjs`：零依赖静态服务器和流式反向代理，不缓存首页，不缓冲 SSE。
 - `API_TARGET`：唯一后端切换点，浏览器端始终只访问相对 `/api` 路径。
 
-详细前端结构见 [`docs/frontend-architecture.md`](docs/frontend-architecture.md)，完整服务接口见 [`docs/service-architecture-and-api.md`](docs/service-architecture-and-api.md)。
+## 文档
+
+- [前端架构和数据流](docs/frontend-architecture.md)
+- [完整服务架构与接口文档](docs/service-architecture-and-api.md)
+- [后端仓库](https://github.com/qascw159/short-novel-service)
 
 ## 校验
 
 ```bash
 npm run check
 ```
-
-后端项目：<https://github.com/qascw159/short-novel-service>

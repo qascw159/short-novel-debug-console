@@ -487,6 +487,17 @@
     .graph-toolbar .icon-btn { color: var(--danger); border-color: var(--line); background: var(--surface); }
     .graph-toolbar .icon-btn:hover { background: var(--danger-soft); border-color: #e2bcbc; }
 
+    .graph-resource-pickers {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 9px;
+    }
+
+    .graph-resource-picker { display: grid; min-width: 0; gap: 5px; }
+    .graph-resource-picker .field-label { margin: 0; }
+    .graph-resource-picker select { width: 100%; min-width: 0; }
+
     .graph-stats {
       justify-content: flex-start;
       margin: 14px 0 9px;
@@ -641,6 +652,7 @@
       .session-strip .status-text { display: none; }
       .session-id { max-width: 90px; }
       .prompt-editor { min-height: 260px; }
+      .graph-resource-pickers { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -756,6 +768,16 @@
           <button id="addGraphEdge" class="btn" type="button"><i data-lucide="git-branch-plus"></i><span>新增关系</span></button>
           <button id="clearGraph" class="icon-btn" type="button" title="清空整个图谱" aria-label="清空整个图谱"><i data-lucide="trash-2"></i></button>
         </div>
+        <div class="graph-resource-pickers">
+          <label class="graph-resource-picker">
+            <span class="field-label">选择节点</span>
+            <select id="graphNodePicker" class="field-select" aria-label="选择已有节点或新建节点"></select>
+          </label>
+          <label class="graph-resource-picker">
+            <span class="field-label">选择关系</span>
+            <select id="graphEdgePicker" class="field-select" aria-label="选择已有关系或新建关系"></select>
+          </label>
+        </div>
         <div class="graph-stats">
           <span class="graph-stat"><strong id="nodeCount">0</strong>节点</span>
           <span class="graph-stat"><strong id="edgeCount">0</strong>关系</span>
@@ -817,7 +839,8 @@
       </div>
       <div>
         <label class="field-label" for="graphEdgeRelation">关系类型</label>
-        <input id="graphEdgeRelation" class="field-input" maxlength="64" autocomplete="off" required>
+        <input id="graphEdgeRelation" class="field-input" list="graphRelationTypes" maxlength="64" autocomplete="off" required>
+        <datalist id="graphRelationTypes"></datalist>
       </div>
       <div>
         <label class="field-label" for="graphEdgeTarget">目标节点</label>
@@ -842,6 +865,11 @@
 <script>
   const API_BASE = '/api/novels/daily/conversation';
   const GRAPH_API_BASE = '/api/novels/knowledge-graph';
+  const DEFAULT_NODE_TYPES = ['person', 'organization', 'location', 'event', 'concept', 'emotion'];
+  const DEFAULT_RELATION_TYPES = [
+    'related_to', 'family_of', 'friend_of', 'colleague_of', 'works_at',
+    'lives_in', 'caused_by', 'involves', 'feels'
+  ];
   const PROMPT_LABELS = {
     clarification_system: '澄清判断',
     outline_system: '生成大纲',
@@ -882,6 +910,7 @@
     configView: $('configView'), graphView: $('graphView'), graphUser: $('graphUser'),
     graphStatus: $('graphStatus'), graphCanvas: $('graphCanvas'), graphNetwork: $('graphNetwork'), graphEmpty: $('graphEmpty'),
     nodeList: $('nodeList'), relationList: $('relationList'), nodeCount: $('nodeCount'), edgeCount: $('edgeCount'),
+    graphNodePicker: $('graphNodePicker'), graphEdgePicker: $('graphEdgePicker'),
     graphDialog: $('graphEditorDialog'), graphForm: $('graphEditorForm')
   };
   el.userId = $('userIdInput');
@@ -1018,6 +1047,8 @@
       if (!nodeMap.has(edge.target)) nodeMap.set(edge.target, inferredNode(edge.target, edge.target_type));
     });
     const nodes = [...nodeMap.values()];
+    renderGraphResourcePickers(rawNodes, rawEdges, nodeMap);
+    renderGraphTypeSuggestions(rawNodes, rawEdges);
 
     el.nodeCount.textContent = String(nodes.length);
     el.edgeCount.textContent = String(rawEdges.length);
@@ -1090,6 +1121,90 @@
       el.relationList.appendChild(row);
     });
     refreshIcons();
+  }
+
+  function renderGraphResourcePickers(nodes, edges, nodeMap) {
+    populateGraphResourcePicker(
+      el.graphNodePicker,
+      '选择已有节点或新建',
+      '自定义新节点',
+      nodes,
+      node => String(node.record_id),
+      node => `${node.name || entityLabel(node.id)} (${node.type || 'concept'})`
+    );
+    populateGraphResourcePicker(
+      el.graphEdgePicker,
+      '选择已有关系或新建',
+      '自定义新关系',
+      edges,
+      edge => String(edge.id),
+      edge => {
+        const source = nodeMap.get(edge.source)?.name || entityLabel(edge.source);
+        const target = nodeMap.get(edge.target)?.name || entityLabel(edge.target);
+        return `${source} - ${edge.relation || 'related_to'} -> ${target}`;
+      }
+    );
+    el.graphEdgePicker.disabled = nodes.length < 2;
+  }
+
+  function populateGraphResourcePicker(select, placeholderLabel, newLabel, items, valueOf, labelOf) {
+    select.innerHTML = '';
+    const placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = placeholderLabel;
+    placeholder.selected = true;
+    placeholder.disabled = true;
+    select.appendChild(placeholder);
+
+    const create = document.createElement('option');
+    create.value = '__new__';
+    create.textContent = `+ ${newLabel}`;
+    select.appendChild(create);
+
+    items.forEach(item => {
+      const option = document.createElement('option');
+      option.value = valueOf(item);
+      option.textContent = labelOf(item);
+      select.appendChild(option);
+    });
+  }
+
+  function renderGraphTypeSuggestions(nodes, edges) {
+    populateDatalist('graphNodeTypes', [
+      ...DEFAULT_NODE_TYPES,
+      ...nodes.map(node => node.type)
+    ]);
+    populateDatalist('graphRelationTypes', [
+      ...DEFAULT_RELATION_TYPES,
+      ...edges.map(edge => edge.relation)
+    ]);
+  }
+
+  function populateDatalist(id, values) {
+    const datalist = $(id);
+    datalist.innerHTML = '';
+    [...new Set(values.filter(value => typeof value === 'string' && value.trim()).map(value => value.trim()))]
+      .forEach(value => {
+        const option = document.createElement('option');
+        option.value = value;
+        datalist.appendChild(option);
+      });
+  }
+
+  function editSelectedGraphNode() {
+    const value = el.graphNodePicker.value;
+    el.graphNodePicker.value = '';
+    if (value === '__new__') return openNodeEditor();
+    const node = state.graphData.nodes.find(item => String(item.record_id) === value);
+    if (node) openNodeEditor(node);
+  }
+
+  function editSelectedGraphEdge() {
+    const value = el.graphEdgePicker.value;
+    el.graphEdgePicker.value = '';
+    if (value === '__new__') return openEdgeEditor();
+    const edge = state.graphData.edges.find(item => String(item.id) === value);
+    if (edge) openEdgeEditor(edge);
   }
 
   function renderNodeList(nodes) {
@@ -1830,6 +1945,8 @@
   $('refreshGraph').addEventListener('click', loadGraph);
   $('addGraphNode').addEventListener('click', () => openNodeEditor());
   $('addGraphEdge').addEventListener('click', () => openEdgeEditor());
+  el.graphNodePicker.addEventListener('change', editSelectedGraphNode);
+  el.graphEdgePicker.addEventListener('change', editSelectedGraphEdge);
   $('clearGraph').addEventListener('click', clearUserGraph);
   $('closeGraphEditor').addEventListener('click', closeGraphEditor);
   $('cancelGraphEditor').addEventListener('click', closeGraphEditor);
