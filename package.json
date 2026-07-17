@@ -1,0 +1,15 @@
+{
+  "name": "short-novel-debug-console",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Standalone local debug console for short-novel-service",
+  "type": "module",
+  "scripts": {
+    "dev": "node server.mjs",
+    "check": "node --check server.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
+
