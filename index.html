@@ -271,6 +271,8 @@
     .btn:hover { border-color: #aab4af; background: #f8faf8; }
     .btn.primary { color: white; background: var(--accent); border-color: var(--accent); }
     .btn.primary:hover { background: var(--accent-strong); }
+    .btn.danger { color: var(--danger); border-color: #e2bcbc; }
+    .btn.danger:hover { background: var(--danger-soft); border-color: #d89999; }
     .btn svg { width: 16px; height: 16px; }
 
     .outline-title { margin: 0 0 4px; font-size: 18px; }
@@ -474,6 +476,17 @@
     .graph-head h3 { margin: 0; font-size: 14px; }
     .graph-user { margin-top: 2px; color: var(--muted); font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
 
+    .graph-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      margin-top: 13px;
+    }
+
+    .graph-toolbar .btn { flex: 1; padding-inline: 9px; }
+    .graph-toolbar .icon-btn { color: var(--danger); border-color: var(--line); background: var(--surface); }
+    .graph-toolbar .icon-btn:hover { background: var(--danger-soft); border-color: #e2bcbc; }
+
     .graph-stats {
       justify-content: flex-start;
       margin: 14px 0 9px;
@@ -509,14 +522,43 @@
     .graph-empty svg { width: 24px; height: 24px; color: var(--accent); }
     .graph-network { position: absolute; inset: 0; }
 
-    .relation-list { display: grid; gap: 7px; margin-top: 10px; }
+    .graph-detail-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-top: 15px;
+    }
+
+    .graph-detail-head .field-label { margin: 0; }
+    .entity-list, .relation-list { display: grid; gap: 7px; margin-top: 9px; }
+
+    .entity-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 8px;
+      min-height: 48px;
+      padding: 7px 7px 7px 10px;
+      background: var(--surface);
+      border-left: 3px solid var(--accent);
+    }
+
+    .entity-copy { min-width: 0; }
+    .entity-title { overflow-wrap: anywhere; font-size: 12px; font-weight: 750; }
+    .entity-meta { color: var(--muted); font: 10px ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .row-actions { display: flex; align-items: center; gap: 2px; }
+    .row-actions .icon-btn { width: 30px; height: 30px; color: var(--muted); }
+    .row-actions .icon-btn:hover { color: var(--ink); background: var(--surface-alt); }
+    .row-actions .icon-btn.danger:hover { color: var(--danger); background: var(--danger-soft); }
 
     .relation-row {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+      grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto;
       align-items: center;
       gap: 7px;
-      padding: 8px 9px;
+      min-height: 48px;
+      padding: 7px 7px 7px 9px;
       background: var(--surface);
       border-left: 3px solid #d5a13d;
       font-size: 12px;
@@ -524,6 +566,27 @@
 
     .relation-row span { min-width: 0; overflow-wrap: anywhere; }
     .relation-type { color: var(--amber); font: 10px ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+    .graph-dialog {
+      width: min(92vw, 520px);
+      max-height: min(88vh, 720px);
+      padding: 0;
+      color: var(--ink);
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: 0 24px 70px rgba(18, 28, 24, .24);
+    }
+
+    .graph-dialog::backdrop { background: rgba(20, 28, 25, .45); }
+    .graph-dialog-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 15px 18px; border-bottom: 1px solid var(--line); }
+    .graph-dialog-head h3 { margin: 0; font-size: 15px; }
+    .graph-dialog-head .icon-btn:hover { color: var(--ink); background: var(--surface-alt); }
+    .graph-form { display: grid; gap: 14px; padding: 17px 18px 18px; }
+    .graph-form-section { display: grid; gap: 13px; }
+    .graph-form-section[hidden] { display: none; }
+    .graph-form textarea { min-height: 100px; padding: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; resize: vertical; }
+    .graph-form-actions { display: flex; justify-content: flex-end; gap: 8px; padding-top: 3px; }
 
     .mobile-settings { display: none; }
     .close-settings { display: none; }
@@ -688,6 +751,11 @@
           </div>
           <button id="refreshGraph" class="icon-btn" title="刷新用户图谱" aria-label="刷新用户图谱"><i data-lucide="refresh-cw"></i></button>
         </div>
+        <div class="graph-toolbar">
+          <button id="addGraphNode" class="btn primary" type="button"><i data-lucide="circle-plus"></i><span>新增节点</span></button>
+          <button id="addGraphEdge" class="btn" type="button"><i data-lucide="git-branch-plus"></i><span>新增关系</span></button>
+          <button id="clearGraph" class="icon-btn" type="button" title="清空整个图谱" aria-label="清空整个图谱"><i data-lucide="trash-2"></i></button>
+        </div>
         <div class="graph-stats">
           <span class="graph-stat"><strong id="nodeCount">0</strong>节点</span>
           <span class="graph-stat"><strong id="edgeCount">0</strong>关系</span>
@@ -700,7 +768,13 @@
             <span>输入 API Token 后加载当前用户图谱</span>
           </div>
         </div>
-        <div class="field-label" style="margin-top:15px">关系明细</div>
+        <div class="graph-detail-head">
+          <div class="field-label">节点明细</div>
+        </div>
+        <div id="nodeList" class="entity-list"></div>
+        <div class="graph-detail-head">
+          <div class="field-label">关系明细</div>
+        </div>
         <div id="relationList" class="relation-list"></div>
       </div>
     </aside>
@@ -708,8 +782,66 @@
 </div>
 <div id="toast" class="toast" role="status"></div>
 
+<dialog id="graphEditorDialog" class="graph-dialog" aria-labelledby="graphEditorTitle">
+  <div class="graph-dialog-head">
+    <h3 id="graphEditorTitle">新增节点</h3>
+    <button id="closeGraphEditor" class="icon-btn" type="button" title="关闭" aria-label="关闭编辑器"><i data-lucide="x"></i></button>
+  </div>
+  <form id="graphEditorForm" class="graph-form">
+    <div id="nodeEditorFields" class="graph-form-section">
+      <div>
+        <label class="field-label" for="graphNodeName">名称</label>
+        <input id="graphNodeName" class="field-input" maxlength="255" autocomplete="off" required>
+      </div>
+      <div>
+        <label class="field-label" for="graphNodeType">类型</label>
+        <input id="graphNodeType" class="field-input" list="graphNodeTypes" maxlength="32" autocomplete="off" required>
+        <datalist id="graphNodeTypes">
+          <option value="person"></option><option value="organization"></option><option value="location"></option>
+          <option value="event"></option><option value="concept"></option><option value="emotion"></option>
+        </datalist>
+      </div>
+      <div>
+        <label class="field-label" for="graphNodeConfidence">置信度</label>
+        <input id="graphNodeConfidence" class="field-input" type="number" min="0" max="1" step="0.01" required>
+      </div>
+      <div>
+        <label class="field-label" for="graphNodeProperties">属性 JSON</label>
+        <textarea id="graphNodeProperties" aria-label="节点属性 JSON" spellcheck="false"></textarea>
+      </div>
+    </div>
+    <div id="edgeEditorFields" class="graph-form-section" hidden>
+      <div>
+        <label class="field-label" for="graphEdgeSource">源节点</label>
+        <select id="graphEdgeSource" class="field-select"></select>
+      </div>
+      <div>
+        <label class="field-label" for="graphEdgeRelation">关系类型</label>
+        <input id="graphEdgeRelation" class="field-input" maxlength="64" autocomplete="off" required>
+      </div>
+      <div>
+        <label class="field-label" for="graphEdgeTarget">目标节点</label>
+        <select id="graphEdgeTarget" class="field-select"></select>
+      </div>
+      <div>
+        <label class="field-label" for="graphEdgeConfidence">置信度</label>
+        <input id="graphEdgeConfidence" class="field-input" type="number" min="0" max="1" step="0.01" required>
+      </div>
+      <div>
+        <label class="field-label" for="graphEdgeProperties">属性 JSON</label>
+        <textarea id="graphEdgeProperties" aria-label="关系属性 JSON" spellcheck="false"></textarea>
+      </div>
+    </div>
+    <div class="graph-form-actions">
+      <button id="cancelGraphEditor" class="btn" type="button">取消</button>
+      <button id="saveGraphEditor" class="btn primary" type="submit"><i data-lucide="save"></i><span>保存</span></button>
+    </div>
+  </form>
+</dialog>
+
 <script>
   const API_BASE = '/api/novels/daily/conversation';
+  const GRAPH_API_BASE = '/api/novels/knowledge-graph';
   const PROMPT_LABELS = {
     clarification_system: '澄清判断',
     outline_system: '生成大纲',
@@ -730,6 +862,9 @@
     novelText: '',
     eventLines: [],
     graphNetwork: null,
+    graphData: { nodes: [], edges: [] },
+    graphEditorKind: 'node',
+    graphEditingId: null,
     memoryPollTimer: null,
     configPersisted: false,
     configUpdatedAt: null
@@ -746,7 +881,8 @@
     eventLog: $('eventLog'), settings: $('settings'), toast: $('toast'),
     configView: $('configView'), graphView: $('graphView'), graphUser: $('graphUser'),
     graphStatus: $('graphStatus'), graphCanvas: $('graphCanvas'), graphNetwork: $('graphNetwork'), graphEmpty: $('graphEmpty'),
-    relationList: $('relationList'), nodeCount: $('nodeCount'), edgeCount: $('edgeCount')
+    nodeList: $('nodeList'), relationList: $('relationList'), nodeCount: $('nodeCount'), edgeCount: $('edgeCount'),
+    graphDialog: $('graphEditorDialog'), graphForm: $('graphEditorForm')
   };
   el.userId = $('userIdInput');
   el.userId.value = state.userId;
@@ -862,7 +998,7 @@
 
     el.graphStatus.textContent = '加载中';
     try {
-      const response = await fetch(`/api/novels/knowledge-graph/${encodeURIComponent(userId)}`, {
+      const response = await fetch(`${GRAPH_API_BASE}/${encodeURIComponent(userId)}`, {
         headers: apiHeaders('application/json')
       });
       if (!response.ok) throw new Error(response.status === 401 ? 'API Token 不正确' : `图谱加载失败 (${response.status})`);
@@ -875,6 +1011,7 @@
   function renderGraph(data, status) {
     const rawNodes = Array.isArray(data.nodes) ? data.nodes : [];
     const rawEdges = Array.isArray(data.edges) ? data.edges : [];
+    state.graphData = { nodes: rawNodes, edges: rawEdges };
     const nodeMap = new Map(rawNodes.map(node => [node.id, node]));
     rawEdges.forEach(edge => {
       if (!nodeMap.has(edge.source)) nodeMap.set(edge.source, inferredNode(edge.source, edge.source_type));
@@ -885,6 +1022,8 @@
     el.nodeCount.textContent = String(nodes.length);
     el.edgeCount.textContent = String(rawEdges.length);
     el.graphStatus.textContent = status;
+    $('addGraphEdge').disabled = rawNodes.length < 2;
+    $('clearGraph').disabled = rawNodes.length === 0 && rawEdges.length === 0;
     el.graphEmpty.style.display = nodes.length ? 'none' : 'grid';
     el.graphEmpty.querySelector('span').textContent = status === '已更新'
       ? '当前用户还没有图谱数据' : status;
@@ -911,7 +1050,7 @@
         size: node.name === '用户' ? 24 : 18
       }));
       const graphEdges = rawEdges.map((edge, index) => ({
-        id: `edge_${index}`,
+        id: edge.id == null ? `edge_${index}` : `edge_${edge.id}`,
         from: edge.source,
         to: edge.target,
         label: edge.relation || 'related_to',
@@ -931,6 +1070,7 @@
       });
     }
 
+    renderNodeList(rawNodes);
     el.relationList.innerHTML = '';
     rawEdges.slice(0, 30).forEach(edge => {
       const row = document.createElement('div');
@@ -942,9 +1082,251 @@
       relation.textContent = edge.relation || 'related_to';
       const target = document.createElement('span');
       target.textContent = nodeMap.get(edge.target)?.name || entityLabel(edge.target);
-      row.append(source, relation, target);
+      const actions = rowActions(
+        () => openEdgeEditor(edge),
+        () => deleteGraphEdge(edge)
+      );
+      row.append(source, relation, target, actions);
       el.relationList.appendChild(row);
     });
+    refreshIcons();
+  }
+
+  function renderNodeList(nodes) {
+    el.nodeList.innerHTML = '';
+    nodes.slice(0, 50).forEach(node => {
+      const row = document.createElement('div');
+      row.className = 'entity-row';
+      const copy = document.createElement('div');
+      copy.className = 'entity-copy';
+      const title = document.createElement('div');
+      title.className = 'entity-title';
+      title.textContent = node.name || entityLabel(node.id);
+      const meta = document.createElement('div');
+      meta.className = 'entity-meta';
+      meta.textContent = `${node.type || 'concept'} · ${node.provenance || 'ai'}`;
+      copy.append(title, meta);
+      row.append(copy, rowActions(
+        () => openNodeEditor(node),
+        () => deleteGraphNode(node)
+      ));
+      el.nodeList.appendChild(row);
+    });
+  }
+
+  function rowActions(onEdit, onDelete) {
+    const actions = document.createElement('div');
+    actions.className = 'row-actions';
+    actions.append(
+      iconButton('pencil', '编辑', onEdit),
+      iconButton('trash-2', '删除', onDelete, true)
+    );
+    return actions;
+  }
+
+  function iconButton(icon, label, handler, danger = false) {
+    const control = document.createElement('button');
+    control.className = `icon-btn${danger ? ' danger' : ''}`;
+    control.type = 'button';
+    control.title = label;
+    control.setAttribute('aria-label', label);
+    control.innerHTML = `<i data-lucide="${icon}"></i>`;
+    control.addEventListener('click', handler);
+    return control;
+  }
+
+  function graphContext() {
+    const userId = el.userId.value.trim();
+    if (!userId) {
+      showToast('用户 ID 不能为空');
+      return null;
+    }
+    if (!el.apiToken.value.trim()) {
+      showToast('维护图谱需要 API Token');
+      return null;
+    }
+    return {
+      userId,
+      base: `${GRAPH_API_BASE}/${encodeURIComponent(userId)}`
+    };
+  }
+
+  async function graphRequest(url, options = {}) {
+    const response = await fetch(url, {
+      ...options,
+      headers: apiHeaders('application/json')
+    });
+    if (!response.ok) {
+      let message = `请求失败 (${response.status})`;
+      try {
+        const error = await response.json();
+        const details = error.error || Object.values(error).join('；');
+        if (details) message = details;
+      } catch (_) {
+        if (response.status === 401) message = 'API Token 不正确';
+      }
+      throw new Error(message);
+    }
+    return response.status === 204 ? null : response.json();
+  }
+
+  function openNodeEditor(node = null) {
+    if (!graphContext()) return;
+    state.graphEditorKind = 'node';
+    state.graphEditingId = node?.record_id || null;
+    $('graphEditorTitle').textContent = node ? '编辑节点' : '新增节点';
+    setGraphEditorKind('node');
+    $('graphNodeName').value = node?.name || '';
+    $('graphNodeType').value = node?.type || 'person';
+    $('graphNodeConfidence').value = Number(node?.confidence ?? 1).toFixed(2);
+    $('graphNodeProperties').value = formatProperties(node?.properties);
+    el.graphDialog.showModal();
+    $('graphNodeName').focus();
+    refreshIcons();
+  }
+
+  function openEdgeEditor(edge = null) {
+    if (!graphContext()) return;
+    if (state.graphData.nodes.length < 2) {
+      showToast('至少需要两个节点才能创建关系');
+      return;
+    }
+    state.graphEditorKind = 'edge';
+    state.graphEditingId = edge?.id ?? null;
+    $('graphEditorTitle').textContent = edge ? '编辑关系' : '新增关系';
+    setGraphEditorKind('edge');
+    populateNodeSelect($('graphEdgeSource'), edge?.source || state.graphData.nodes[0].id);
+    populateNodeSelect($('graphEdgeTarget'), edge?.target || state.graphData.nodes[1].id);
+    $('graphEdgeRelation').value = edge?.relation || 'related_to';
+    $('graphEdgeConfidence').value = Number(edge?.confidence ?? 1).toFixed(2);
+    $('graphEdgeProperties').value = formatProperties(edge?.properties);
+    el.graphDialog.showModal();
+    $('graphEdgeRelation').focus();
+    refreshIcons();
+  }
+
+  function setGraphEditorKind(kind) {
+    const nodeFields = $('nodeEditorFields');
+    const edgeFields = $('edgeEditorFields');
+    const isNode = kind === 'node';
+    nodeFields.hidden = !isNode;
+    edgeFields.hidden = isNode;
+    nodeFields.querySelectorAll('input, textarea, select').forEach(field => { field.disabled = !isNode; });
+    edgeFields.querySelectorAll('input, textarea, select').forEach(field => { field.disabled = isNode; });
+  }
+
+  function populateNodeSelect(select, selectedId) {
+    select.innerHTML = '';
+    state.graphData.nodes.forEach(node => {
+      const option = document.createElement('option');
+      option.value = node.id;
+      option.textContent = `${node.name || entityLabel(node.id)} (${node.type || 'concept'})`;
+      option.selected = node.id === selectedId;
+      select.appendChild(option);
+    });
+  }
+
+  function formatProperties(properties) {
+    return JSON.stringify(properties && typeof properties === 'object' ? properties : {}, null, 2);
+  }
+
+  function parseProperties(value) {
+    const parsed = value.trim() ? JSON.parse(value) : {};
+    if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') {
+      throw new Error('属性必须是 JSON 对象');
+    }
+    return parsed;
+  }
+
+  function closeGraphEditor() {
+    if (el.graphDialog.open) el.graphDialog.close();
+    state.graphEditingId = null;
+  }
+
+  async function saveGraphEditor(event) {
+    event.preventDefault();
+    const context = graphContext();
+    if (!context) return;
+    const save = $('saveGraphEditor');
+    save.disabled = true;
+    try {
+      const editing = state.graphEditingId != null;
+      let payload;
+      let resource;
+      if (state.graphEditorKind === 'node') {
+        payload = {
+          name: $('graphNodeName').value.trim(),
+          type: $('graphNodeType').value.trim(),
+          confidence: Number($('graphNodeConfidence').value),
+          properties: parseProperties($('graphNodeProperties').value)
+        };
+        resource = editing
+          ? `${context.base}/nodes/${encodeURIComponent(state.graphEditingId)}`
+          : `${context.base}/nodes`;
+      } else {
+        payload = {
+          source: $('graphEdgeSource').value,
+          target: $('graphEdgeTarget').value,
+          relation: $('graphEdgeRelation').value.trim(),
+          confidence: Number($('graphEdgeConfidence').value),
+          properties: parseProperties($('graphEdgeProperties').value)
+        };
+        resource = editing
+          ? `${context.base}/edges/${encodeURIComponent(state.graphEditingId)}`
+          : `${context.base}/edges`;
+      }
+      await graphRequest(resource, {
+        method: editing ? 'PUT' : 'POST',
+        body: JSON.stringify(payload)
+      });
+      closeGraphEditor();
+      await loadGraph();
+      showToast(editing ? '图谱已更新' : '图谱已新增');
+    } catch (error) {
+      showToast(error instanceof SyntaxError ? '属性 JSON 格式不正确' : error.message);
+    } finally {
+      save.disabled = false;
+      refreshIcons();
+    }
+  }
+
+  async function deleteGraphNode(node) {
+    const context = graphContext();
+    if (!context) return;
+    if (!confirm(`删除节点“${node.name || entityLabel(node.id)}”及其全部关联关系？`)) return;
+    try {
+      await graphRequest(`${context.base}/nodes/${encodeURIComponent(node.record_id)}`, { method: 'DELETE' });
+      await loadGraph();
+      showToast('节点及关联关系已删除');
+    } catch (error) {
+      showToast(error.message);
+    }
+  }
+
+  async function deleteGraphEdge(edge) {
+    const context = graphContext();
+    if (!context) return;
+    if (!confirm(`删除关系“${edge.relation || 'related_to'}”？`)) return;
+    try {
+      await graphRequest(`${context.base}/edges/${encodeURIComponent(edge.id)}`, { method: 'DELETE' });
+      await loadGraph();
+      showToast('关系已删除');
+    } catch (error) {
+      showToast(error.message);
+    }
+  }
+
+  async function clearUserGraph() {
+    const context = graphContext();
+    if (!context) return;
+    if (!confirm(`清空用户 ${context.userId} 的全部图谱数据？`)) return;
+    try {
+      await graphRequest(context.base, { method: 'DELETE' });
+      await loadGraph();
+      showToast('用户图谱已清空');
+    } catch (error) {
+      showToast(error.message);
+    }
   }
 
   function inferredNode(id, type) {
@@ -1446,6 +1828,12 @@
   $('configViewTab').addEventListener('click', () => switchSettingsView('config'));
   $('graphViewTab').addEventListener('click', () => switchSettingsView('graph'));
   $('refreshGraph').addEventListener('click', loadGraph);
+  $('addGraphNode').addEventListener('click', () => openNodeEditor());
+  $('addGraphEdge').addEventListener('click', () => openEdgeEditor());
+  $('clearGraph').addEventListener('click', clearUserGraph);
+  $('closeGraphEditor').addEventListener('click', closeGraphEditor);
+  $('cancelGraphEditor').addEventListener('click', closeGraphEditor);
+  el.graphForm.addEventListener('submit', saveGraphEditor);
   el.userId.addEventListener('change', loadGraph);
   el.apiToken.addEventListener('change', connectDebug);
   $('connectToken').addEventListener('click', connectDebug);

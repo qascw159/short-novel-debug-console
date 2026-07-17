@@ -10,6 +10,7 @@
 - 模型和 Temperature 调整
 - 六类系统提示词查看、临时调试和持久化
 - 用户画像与知识图谱查看
+- 图谱节点和关系的新增、查询、修改、删除与整图清空
 - 每日限额和强制重新生成调试
 - 原始 SSE 事件查看
 
@@ -41,7 +42,24 @@ PORT=5174 npm run dev
 
 浏览器只访问本地 `server.mjs`。本地服务器把 `/api/*` 原样转发到 `API_TARGET`，因此普通 JSON 请求和 SSE 流都不需要额外配置 CORS。
 
-API Token 仅保存在当前浏览器标签页的内存中，不会写入源码或提交到 GitHub。需要读取用户图谱或保存系统默认提示词时，在页面右侧填写服务端 API Token。
+API Token 仅保存在当前浏览器标签页的内存中，不会写入源码或提交到 GitHub。读取或维护用户图谱、保存系统默认提示词时，在页面右侧填写服务端 API Token。
+
+## 架构
+
+```mermaid
+flowchart LR
+    Browser[浏览器调试台] -->|同源 HTTP / SSE| Proxy[server.mjs]
+    Proxy -->|/api/* 原样流式代理| Backend[short-novel-service]
+    Browser --> CDN[Lucide / vis-network CDN]
+    Backend --> DB[(MySQL)]
+    Backend --> LLM[OpenAI 兼容模型接口]
+```
+
+- `index.html`：调试工作台、SSE 解析、澄清卡、大纲确认、图谱可视化和图谱编辑器。
+- `server.mjs`：零依赖静态服务器和流式反向代理，不缓存首页，不缓冲 SSE。
+- `API_TARGET`：唯一后端切换点，浏览器端始终只访问相对 `/api` 路径。
+
+详细前端结构见 [`docs/frontend-architecture.md`](docs/frontend-architecture.md)，完整服务接口见 [`docs/service-architecture-and-api.md`](docs/service-architecture-and-api.md)。
 
 ## 校验
 
@@ -49,5 +67,4 @@ API Token 仅保存在当前浏览器标签页的内存中，不会写入源码�
 npm run check
 ```
 
-后端项目及完整接口文档：<https://github.com/qascw159/short-novel-service>
-
+后端项目：<https://github.com/qascw159/short-novel-service>
