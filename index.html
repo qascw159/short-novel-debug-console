@@ -704,7 +704,7 @@
       <div id="configView" class="settings-view">
 
       <div class="setting-group">
-        <label class="field-label" for="userIdInput">用户 ID <span class="field-help">影响每日限额与用户记忆</span></label>
+        <label class="field-label" for="userIdInput">用户 ID <span class="field-help">用于隔离用户记忆与知识图谱</span></label>
         <input id="userIdInput" class="field-input" autocomplete="off">
 
         <label class="field-label" for="modelInput" style="margin-top:13px">模型 <span class="field-help">支持输入自定义 model ID</span></label>
@@ -715,16 +715,6 @@
         <div class="range-row">
           <input id="temperatureRange" type="range" min="0" max="2" step="0.05" value="0.7">
           <input id="temperatureNumber" class="field-input" type="number" min="0" max="2" step="0.05" value="0.7" aria-label="Temperature 数值">
-        </div>
-
-        <div class="toggle-row" style="margin-top:14px">
-          <div>
-            <div class="field-label" style="margin:0">强制重新生成</div>
-            <div class="field-help">忽略当天已有小说</div>
-          </div>
-          <label class="switch" aria-label="强制重新生成">
-            <input id="forceRegenerate" type="checkbox"><span></span>
-          </label>
         </div>
 
         <label class="field-label" for="apiToken" style="margin-top:14px">API Token <span class="field-help">仅保存在当前标签页</span></label>
@@ -905,7 +895,7 @@
     thread: $('thread'), empty: $('emptyState'), query: $('queryInput'), send: $('sendQuery'),
     statusDot: $('statusDot'), statusText: $('statusText'), sessionId: $('sessionId'),
     model: $('modelInput'), models: $('modelOptions'), tempRange: $('temperatureRange'),
-    tempNumber: $('temperatureNumber'), tempValue: $('temperatureValue'), force: $('forceRegenerate'),
+    tempNumber: $('temperatureNumber'), tempValue: $('temperatureValue'),
     apiToken: $('apiToken'), tabs: $('promptTabs'), promptName: $('promptName'), prompt: $('promptEditor'),
     eventLog: $('eventLog'), settings: $('settings'), toast: $('toast'),
     configView: $('configView'), graphView: $('graphView'), graphUser: $('graphUser'),
@@ -1552,7 +1542,6 @@
     el.userId.disabled = false;
     el.tempRange.disabled = false;
     el.tempNumber.disabled = false;
-    el.force.disabled = false;
     el.prompt.disabled = false;
     el.query.focus();
   }
@@ -1563,7 +1552,6 @@
     el.model.disabled = true;
     el.tempRange.disabled = true;
     el.tempNumber.disabled = true;
-    el.force.disabled = true;
     el.prompt.disabled = true;
   }
 
@@ -1857,8 +1845,8 @@
       }
       state.novelNode.classList.remove('stream-caret');
     }
-    setBusy(false, payload.generated === false ? '已返回今日小说' : '生成完成');
-    showToast(payload.generated === false ? '今天已有小说，已直接返回' : `生成完成，共 ${payload.character_count || state.novelText.length} 字`);
+    setBusy(false, '生成完成');
+    showToast(`生成完成，共 ${payload.character_count || state.novelText.length} 字`);
     pollMemoryAndGraph();
   }
 
@@ -1923,8 +1911,7 @@
       query,
       model: el.model.value.trim(),
       temperature: Number(el.tempNumber.value),
-      prompt_overrides: state.prompts,
-      force_regenerate: el.force.checked
+      prompt_overrides: state.prompts
     });
   }
 

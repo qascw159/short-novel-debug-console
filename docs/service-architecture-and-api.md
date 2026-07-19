@@ -1,6 +1,6 @@
 # 短篇小说服务架构与接口文档
 
-> 文档版本：1.1
+> 文档版本：1.2
 > 服务地址：`http://49.232.138.53:8010`  
 > 默认模型：`deepseek-v4-flash`  
 > 核心协议：HTTP + Server-Sent Events（SSE）
@@ -19,7 +19,7 @@
 - 小说正文通过 SSE 增量返回。
 - 用户画像和知识图谱在大纲生成后异步更新。
 - 用户可通过 REST API 或调试台手工维护图谱节点和关系，手工数据优先于 AI 自动补全。
-- 同一用户每天默认只生成一篇，`force_regenerate=true` 可强制生成新版本。
+- 服务不限制每日生成次数；调用方通过是否发起新业务请求控制生成频率。
 - `message_id` 提供请求幂等，防止重复提交消耗澄清轮次或生成重复小说。
 - 会话和小说状态持久化，可在断线后查询和恢复。
 
@@ -81,7 +81,7 @@ flowchart TB
 | `KnowledgeGraphController` | 暴露整图查询、节点 CRUD、关系 CRUD 和清空接口 |
 | `KnowledgeGraphService` | 校验节点归属和重复关系，事务同步冗余名称，保护手工维护数据 |
 | `OpenAiCompatibleLlmClient` | 按 OpenAI Chat Completions 格式调用模型，支持普通请求和流式请求 |
-| Flyway | 管理数据库结构版本，当前迁移版本为 `v3` |
+| Flyway | 管理数据库结构版本，当前迁移版本为 `v4` |
 | `SessionCleanupService` | 定时清理过期会话和幂等记录 |
 
 ### 2.3 核心数据表
@@ -140,61 +140,56 @@ sequenceDiagram
     A->>W: 鉴权并开始工作流
     W->>DB: 事务占用 message_id 并创建会话
 
-    alt 当天已有小说且 force_regenerate=false
-        DB-->>W: 返回当天最新小说
-        W-->>C: novel_done<br/>generated=false, reason=daily_limit
-    else 需要创建或强制重新生成
-        W-->>C: status<br/>正在判断是否需要澄清
-        W->>L: 澄清判断
+    W-->>C: status<br/>正在判断是否需要澄清
+    W->>L: 澄清判断
 
-        loop 最多 3 轮澄清
-            alt 需要澄清
-                L-->>W: 澄清卡 JSON
-                W->>DB: 保存澄清卡和轮次
-                W-->>C: clarification_card
-                C-->>U: 渲染澄清卡
-                U->>C: 选择选项或填写答案
-                C->>A: POST /stream<br/>action=answer_clarification
-                A->>W: 校验状态和 message_id
-                W-->>C: status<br/>正在判断是否继续澄清
-                W->>L: 原 query + 已有澄清记录
-            else 信息已充分
-                L-->>W: clarified_query
-            end
+    loop 最多 3 轮澄清
+        alt 需要澄清
+            L-->>W: 澄清卡 JSON
+            W->>DB: 保存澄清卡和轮次
+            W-->>C: clarification_card
+            C-->>U: 渲染澄清卡
+            U->>C: 选择选项或填写答案
+            C->>A: POST /stream<br/>action=answer_clarification
+            A->>W: 校验状态和 message_id
+            W-->>C: status<br/>正在判断是否继续澄清
+            W->>L: 原 query + 已有澄清记录
+        else 信息已充分
+            L-->>W: clarified_query
         end
-
-        W->>DB: 读取用户画像和知识图谱
-        W->>L: 生成小说大纲
-        L-->>W: 大纲 JSON
-        W->>DB: 保存大纲，状态改为待确认
-        W-->>C: outline_created
-        W-->>M: 异步触发用户画像和知识图谱更新
-        M->>L: 从真实 query 抽取画像和图谱
-        M->>DB: 保存画像、节点和关系边
-
-        alt 用户要求修改大纲
-            U->>C: 输入修改意见
-            C->>A: POST /stream<br/>action=modify_outline
-            W-->>C: status<br/>正在修改大纲
-            W->>L: 当前大纲 + 修改意见
-            L-->>W: 新大纲 JSON
-            W->>DB: 保存新大纲
-            W-->>C: outline_created
-        end
-
-        U->>C: 确认大纲
-        C->>A: POST /stream<br/>action=confirm_outline
-        W->>DB: 原子更新状态为 GENERATING
-        W-->>C: novel_start
-        W->>L: 确认大纲 + 画像 + 图谱
-        loop 模型流式输出
-            L-->>W: 文本 delta
-            W-->>C: novel_delta
-            C-->>U: 增量展示小说正文
-        end
-        W->>DB: 事务分配版本、保存小说、完成会话
-        W-->>C: novel_done
     end
+
+    W->>DB: 读取用户画像和知识图谱
+    W->>L: 生成小说大纲
+    L-->>W: 大纲 JSON
+    W->>DB: 保存大纲，状态改为待确认
+    W-->>C: outline_created
+    W-->>M: 异步触发用户画像和知识图谱更新
+    M->>L: 从真实 query 抽取画像和图谱
+    M->>DB: 保存画像、节点和关系边
+
+    alt 用户要求修改大纲
+        U->>C: 输入修改意见
+        C->>A: POST /stream<br/>action=modify_outline
+        W-->>C: status<br/>正在修改大纲
+        W->>L: 当前大纲 + 修改意见
+        L-->>W: 新大纲 JSON
+        W->>DB: 保存新大纲
+        W-->>C: outline_created
+    end
+
+    U->>C: 确认大纲
+    C->>A: POST /stream<br/>action=confirm_outline
+    W->>DB: 原子更新状态为 GENERATING
+    W-->>C: novel_start
+    W->>L: 确认大纲 + 画像 + 图谱
+    loop 模型流式输出
+        L-->>W: 文本 delta
+        W-->>C: novel_delta
+        C-->>U: 增量展示小说正文
+    end
+    W->>DB: 事务分配同日新版本、保存小说、完成会话
+    W-->>C: novel_done
 ```
 
 ## 4. 接口接入约定
@@ -298,7 +293,7 @@ X-API-Token: <YOUR_API_TOKEN>
 | `model` | string | 可选 | 忽略 | 模型 ID，默认 `deepseek-v4-flash` |
 | `temperature` | number | 可选 | 忽略 | 范围会被限制到 `0.0-2.0`，默认 `0.7` |
 | `prompt_overrides` | object | 可选 | 忽略 | 本会话提示词覆盖，创建后固化在会话中 |
-| `force_regenerate` | boolean | 可选 | 忽略 | 默认 `false`；为 `true` 时忽略每日一篇限制 |
+| `force_regenerate` | boolean | 可选 | 忽略 | 已废弃，仅为兼容旧调用方保留，传入任何值都不影响流程 |
 
 #### 动作表
 
@@ -320,8 +315,7 @@ X-API-Token: <YOUR_API_TOKEN>
   "message_id": "msg_20260711_0001",
   "query": "今天很不开心",
   "model": "deepseek-v4-flash",
-  "temperature": 0.7,
-  "force_regenerate": false
+  "temperature": 0.7
 }
 ```
 
@@ -329,7 +323,6 @@ X-API-Token: <YOUR_API_TOKEN>
 
 - `clarification_card`：需要用户继续补充。
 - `outline_created`：信息充分，已生成待确认大纲。
-- `novel_done` 且 `generated=false`：今天已有小说，直接返回已有结果。
 - `error`：工作流处理失败。
 
 ### 5.3 回答文本或单选澄清卡
@@ -579,15 +572,15 @@ novel_done
 }
 ```
 
-当天已有小说、未强制重新生成：
+同一个 `message_id` 在小说完成后重发时，服务回放已保存的最终结果：
 
 ```json
 {
   "type": "novel_done",
   "session_id": "sess_xxx",
   "payload": {
-    "generated": false,
-    "reason": "daily_limit",
+    "generated": true,
+    "replayed": true,
     "novel_id": 1001,
     "novel_version": 1,
     "title": "数据为王",
@@ -668,7 +661,7 @@ GET /api/novels/daily/conversation/sessions/sess_0123456789abcdefghij?user_id=us
 | `RUNNING` | 正在更新画像和图谱 |
 | `COMPLETED` | 更新成功 |
 | `FAILED` | 更新失败，可通过 `memory_error_message` 排查 |
-| `SKIPPED` | 本次直接返回当天已有小说，没有执行记忆更新 |
+| `SKIPPED` | 旧版本每日限额产生的历史会话未执行记忆更新；当前版本不再新增此状态 |
 
 ## 8. 用户知识图谱接口
 
@@ -988,7 +981,6 @@ X-API-Token: <YOUR_API_TOKEN>
 | `INVALID_SESSION_STATUS` | false | 当前状态不允许此动作 | 先查询会话状态 |
 | `ANSWER_REQUIRED` | false | 澄清答案为空 | 要求用户回答 |
 | `FEEDBACK_REQUIRED` | false | 修改大纲时未提供反馈 | 填写 `payload.feedback` |
-| `DAILY_GENERATION_IN_PROGRESS` | true | 当天已有未完成的非强制会话 | 使用返回的 `session_id` 查询或继续 |
 | `DUPLICATE_REQUEST` | true | 幂等请求已被处理，但暂时无法回放 | 查询会话状态 |
 | `WORKFLOW_FAILED` | true | 澄清或大纲模型调用失败 | 使用同一会话执行 `retry` |
 | `OUTLINE_REQUIRED` | false | 会话内没有可用大纲 | 回到大纲步骤 |
@@ -1012,7 +1004,7 @@ X-API-Token: <YOUR_API_TOKEN>
 | `410 Gone` | 调用了已废弃的同步生成接口 |
 | `500 Internal Server Error` | 未被工作流转换为 SSE 错误的服务器异常 |
 
-## 11. 幂等、每日限制与重试策略
+## 11. 幂等、生成频率与重试策略
 
 ### 11.1 `message_id` 规则
 
@@ -1035,11 +1027,13 @@ app_20260711_9f2bd5f0
 3. 重复请求不会重复消费澄清轮次，也不会创建新的小说版本，而是回放当前会话状态。
 4. 用户主动点击“重试”属于新的业务操作，应生成新的 `message_id`。
 
-### 11.2 每日一篇规则
+### 11.2 生成频率由调用方控制
 
-- `force_regenerate=false` 且当天已有小说时，直接返回已有小说。
-- 此时返回 `novel_done`，其中 `generated=false`、`reason=daily_limit`。
-- `force_regenerate=true` 时创建新会话，小说生成成功后版本号递增。
+- 服务端不限制同一用户每天创建小说的次数。
+- 调用方每发起一个新的业务请求并使用新的 `message_id`，服务就创建独立会话。
+- 同一天完成的多篇小说使用递增的 `novel_version` 保存，不覆盖已有小说。
+- 重发同一业务请求必须复用原 `message_id`，服务只回放原会话，不创建新版本。
+- `force_regenerate` 已废弃但仍兼容接收，传入 `true` 或 `false` 都不会改变上述行为。
 - 小说版本由数据库事务原子分配，并发请求不会获得相同版本号。
 
 ### 11.3 断线恢复
@@ -1163,8 +1157,7 @@ curl -N \
   -d '{
     "user_id": "user_10001",
     "message_id": "msg_20260711_0001",
-    "query": "今天很不开心",
-    "force_regenerate": true
+    "query": "今天很不开心"
   }'
 ```
 
@@ -1218,7 +1211,7 @@ Link: </api/novels/daily/conversation/stream>; rel="successor-version"
 
 ## 16. 兼容数据接口
 
-这些接口用于兼容早期数据脚本，直接读写底层用户、画像和小说记录，不执行澄清、大纲确认、每日限额、幂等或小说生成工作流。新业务应优先使用会话接口。
+这些接口用于兼容早期数据脚本，直接读写底层用户、画像和小说记录，不执行澄清、大纲确认、幂等或小说生成工作流。新业务应优先使用会话接口。
 
 除 `/` 外，以下接口均需要 API Token。
 
