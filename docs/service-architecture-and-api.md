@@ -37,12 +37,15 @@ flowchart TB
     Clarification[ClarificationService<br/>澄清判断与答案归并]
     Outline[OutlineService<br/>大纲生成与修改]
     Novel[NovelGenerationService<br/>小说流式生成]
+    SensitiveWords[SensitiveWordService<br/>确定性词库过滤]
+    Moderation[ContentModerationService<br/>输入与流式输出审核]
     SessionCreation[SessionCreationService<br/>会话与幂等事务]
     Persistence[NovelPersistenceService<br/>小说版本与完成事务]
     Memory[UserMemoryUpdateService<br/>异步画像与图谱更新]
     GraphController[KnowledgeGraphController<br/>节点与关系 CRUD]
     GraphService[KnowledgeGraphService<br/>归属校验与事务维护]
     LLM[LlmClient<br/>OpenAI 兼容模型接口]
+    Guard[Qwen3Guard-Gen-0.6B<br/>本地安全模型]
     DB[(MySQL)]
 
     Client --> Auth --> Controller --> Workflow
@@ -51,9 +54,13 @@ flowchart TB
     Workflow --> Clarification
     Workflow --> Outline
     Workflow --> Novel
+    Workflow --> SensitiveWords
+    Workflow --> Moderation
     Clarification --> LLM
     Outline --> LLM
     Novel --> LLM
+    Novel --> SensitiveWords --> Moderation
+    Moderation --> Guard
     Outline -.异步.-> Memory
     Memory --> LLM
     Client --> Auth --> GraphController --> GraphService --> DB
@@ -75,6 +82,8 @@ flowchart TB
 | `ClarificationService` | 判断是否需要澄清、规范化澄清卡、记录澄清答案，限制最大轮次 |
 | `OutlineService` | 读取画像与图谱，生成或修改大纲，并触发后台记忆更新 |
 | `NovelGenerationService` | 返回 `novel_start`、`novel_delta`、`novel_done`，处理超时、断连和失败 |
+| `SensitiveWordService` | 在模型审核前执行词库匹配；输入命中时拒绝，模型输出命中时跨分片替换为 `**` |
+| `ContentModerationService` | 在模型调用前审核用户输入；按字符批次审核正文，审核通过后才向 SSE 下游释放 |
 | `SessionCreationService` | 在同一事务中占用 `message_id` 并创建会话 |
 | `NovelPersistenceService` | 在同一事务中分配小说版本、保存小说并完成会话 |
 | `UserMemoryUpdateService` | 异步更新用户画像和知识图谱，只使用用户真实输入，不使用虚构小说正文 |
@@ -103,6 +112,7 @@ flowchart TB
 stateDiagram-v2
     [*] --> DECIDING: 创建会话
     DECIDING --> CLARIFYING: 需要澄清
+    DECIDING --> CONTENT_BLOCKED: 输入未通过审核
     CLARIFYING --> CLARIFYING: 继续追问且未达到上限
     DECIDING --> OUTLINE_PENDING_CONFIRMATION: 信息充分
     CLARIFYING --> OUTLINE_PENDING_CONFIRMATION: 信息充分或达到轮次上限
@@ -120,6 +130,7 @@ stateDiagram-v2
 | `OUTLINE_PENDING_CONFIRMATION` | 大纲已生成，等待确认 | `confirm_outline`、`modify_outline`、`retry` |
 | `GENERATING` | 小说正在流式生成 | 查询会话状态，不要重复确认 |
 | `GENERATION_FAILED` | 小说生成失败或流连接中断 | `retry_generation`、`retry` |
+| `CONTENT_BLOCKED` | 初始输入未通过内容安全审核 | 修改输入并创建新会话 |
 | `COMPLETED` | 小说已生成并保存 | 查询小说结果 |
 
 ## 3. 用户 Query 完整时序图
@@ -131,6 +142,7 @@ sequenceDiagram
     participant C as 接入方客户端
     participant A as Conversation API
     participant W as Workflow
+    participant S as Qwen3Guard
     participant DB as MySQL
     participant L as 大模型
     participant M as 后台记忆任务
@@ -138,14 +150,28 @@ sequenceDiagram
     U->>C: 输入当天 query
     C->>A: POST /stream<br/>user_id + message_id + query
     A->>W: 鉴权并开始工作流
+    W->>W: 敏感词词库检查
+    break query命中敏感词
+        W-->>C: error<br/>SENSITIVE_WORD_BLOCKED
+    end
     W->>DB: 事务占用 message_id 并创建会话
+    W-->>C: status<br/>正在进行内容安全审核
+    W->>S: 审核用户 query
+    alt 输入不安全
+        S-->>W: Unsafe + 风险类别
+        W->>DB: 状态改为 CONTENT_BLOCKED
+        W-->>C: error<br/>CONTENT_BLOCKED
+    else 输入安全
+        S-->>W: Safe
+    end
 
-    W-->>C: status<br/>正在判断是否需要澄清
     W->>L: 澄清判断
 
     loop 最多 3 轮澄清
         alt 需要澄清
             L-->>W: 澄清卡 JSON
+            W->>W: 可见文本敏感词替换为 **
+            W->>S: 审核替换后的澄清文本
             W->>DB: 保存澄清卡和轮次
             W-->>C: clarification_card
             C-->>U: 渲染澄清卡
@@ -185,7 +211,15 @@ sequenceDiagram
     W->>L: 确认大纲 + 画像 + 图谱
     loop 模型流式输出
         L-->>W: 文本 delta
-        W-->>C: novel_delta
+        W->>W: 跨分片敏感词替换为 **
+        W->>S: 累积到审核批次后校验
+        alt 批次安全
+            S-->>W: Safe
+            W-->>C: novel_delta
+        else 批次不安全
+            S-->>W: Unsafe + 风险类别
+            W-->>C: error<br/>CONTENT_BLOCKED
+        end
         C-->>U: 增量展示小说正文
     end
     W->>DB: 事务分配同日新版本、保存小说、完成会话
@@ -986,6 +1020,9 @@ X-API-Token: <YOUR_API_TOKEN>
 | `OUTLINE_REQUIRED` | false | 会话内没有可用大纲 | 回到大纲步骤 |
 | `GENERATION_BUSY_OR_COMPLETED` | false | 小说正在生成或已经完成 | 查询会话状态，不要重复确认 |
 | `NOVEL_GENERATION_FAILED` | true | 小说模型调用或保存失败 | 使用新 `message_id` 执行 `retry_generation` |
+| `CONTENT_BLOCKED` | false/true | 用户输入或模型输出被 Qwen3Guard 判定为不安全 | 输入被拒时修改输入新建会话；输出被拒时修改大纲后重试 |
+| `SENSITIVE_WORD_BLOCKED` | false | 用户 query、澄清答案或大纲修改意见命中确定性敏感词词库 | 修改输入后重新提交；该请求不会调用 Qwen3Guard |
+| `CONTENT_MODERATION_UNAVAILABLE` | true | 安全模型超时、不可达或响应格式异常 | 稍后使用同一会话重试 |
 | `NOT_RETRYABLE` | false | 当前状态不需要重试 | 按当前状态继续 |
 
 `STREAM_CANCELLED` 记录在会话的 `error_code` 中。它表示小说流尚未完成时客户端主动断开，客户端重新连接后应查询状态并执行 `retry_generation`。
@@ -1182,8 +1219,64 @@ curl \
 | `AI_ANALYSIS_MODEL` | `deepseek-v4-flash` | 默认分析模型 |
 | `AI_TEMPERATURE` | `0.7` | 默认温度 |
 | `AI_THINKING_ENABLED` | `false` | 是否启用模型思考；默认关闭以降低延迟 |
+| `MODERATION_ENABLED` | `true` | 是否启用内容安全审核 |
+| `MODERATION_BASE_URL` | `http://127.0.0.1:18080/v1/chat/completions` | Qwen3Guard 的 OpenAI 兼容接口 |
+| `MODERATION_MODEL` | `Qwen3Guard-Gen-0.6B` | 安全模型名称 |
+| `MODERATION_TIMEOUT_SECONDS` | `30` | 单次安全审核超时 |
+| `MODERATION_STREAM_CHUNK_CHARACTERS` | `360` | 流式正文累计多少字符后审核并释放 |
+| `MODERATION_STREAM_CONTEXT_CHARACTERS` | `120` | 下一批审核携带的已通过正文尾部长度 |
+| `MODERATION_MAX_TOKENS` | `64` | 安全模型单次判定允许输出的最大 Token 数 |
+| `MODERATION_MAX_ATTEMPTS` | `2` | 超时、HTTP 错误或响应格式异常时的最大尝试次数；真实 `Unsafe` 判定不重试 |
+| `MODERATION_FAIL_CLOSED` | `true` | 安全模型不可用时是否拒绝继续生成 |
+| `SENSITIVE_WORDS_ENABLED` | `true` | 是否启用确定性敏感词过滤 |
+| `SENSITIVE_WORD_REPLACEMENT` | `**` | 澄清卡和小说正文的替换文本 |
+| `SENSITIVE_WORD_BLOCK_DICTIONARY_PATH` | 空 | 输入硬拦截词库，每行一个词 |
+| `SENSITIVE_WORD_MASK_DICTIONARY_PATH` | 空 | 澄清卡和小说正文替换词库，每行一个词 |
+| `SENSITIVE_WORD_ALLOW_DICTIONARY_PATH` | 空 | 精确白名单，同时从拦截与替换词库移除同名词条 |
+| `SENSITIVE_WORD_BLOCK_WORDS` | 空 | 额外的逗号分隔输入拦截词 |
+| `SENSITIVE_WORD_MASK_WORDS` | 空 | 额外的逗号分隔输出替换词 |
+| `SENSITIVE_WORD_ALLOW_WORDS` | 空 | 额外的逗号分隔精确白名单词 |
+| `SENSITIVE_WORD_DICTIONARY_PATH` | 空 | 旧版兼容配置，同时加载到拦截与替换词库，已废弃 |
+| `SENSITIVE_WORDS` | 空 | 旧版兼容追加词，已废弃 |
 
 会话过期后，小说、用户画像和知识图谱不会随会话一起删除。接入方不应将会话接口当作永久小说存储接口。
+
+安全模型调用运行在独立工作线程，不阻塞 WebFlux 事件循环；业务上仍是发布前门禁：
+输入审核通过后才进入澄清/大纲流程，正文批次审核通过后才发送对应
+`novel_delta`。因此安全模型异常不会导致未经审核的文本被直接放行。
+
+内容安全链路固定为“敏感词规则 → Qwen3Guard”。用户 query、澄清答案和大纲修改
+意见命中词库后直接返回 `SENSITIVE_WORD_BLOCKED`，不再调用安全模型。澄清卡可见字段和
+小说正文先完成替换，再交给 Qwen3Guard 复核；正文状态机会保留未完成的词前缀，
+因此敏感词即使被模型拆到两个 SSE delta 中也不会漏检。新生成的澄清卡和小说正文
+均以替换后的版本持久化，`novel_done.payload.content` 与 delta 拼接结果保持一致。
+
+生产起始词库位于 `deploy/sensitive-words/`：输入拦截与输出替换各 2,176 条，精确
+白名单 11 条。词条来自 MIT 许可的 `konsheng/Sensitive-lexicon` 指定版本，包含政治、
+反动、贪腐、暴恐、涉枪涉爆和色情分类，历史人物与历史事件不做豁免。停止词、网址、
+广告、GFW 补充、Tencent、网易和未分类大词表不导入。来源版本和完整许可声明见
+`deploy/sensitive-words/SOURCES.md`。
+
+### 14.1 Qwen3Guard 运行保护
+
+生产部署使用 `deploy/qwen3guard.service`。安全模型只监听
+`127.0.0.1:18080`，关闭跨请求提示缓存和上下文检查点，限制 HTTP
+线程数、请求超时、任务数及内存上限。这样既控制长期内存增长，也避免不同用户的
+输入保留在共享提示缓存中。
+
+`qwen3guard-healthcheck.timer` 每分钟检查一次 `/health`；连续 5 秒无响应时，
+systemd 通过 `qwen3guard-restart.service` 重启安全模型。接口在恢复前继续按
+`MODERATION_FAIL_CLOSED=true` 返回 `CONTENT_MODERATION_UNAVAILABLE`，不会绕过审核。
+安全模型发生瞬时请求失败或未返回标准 `Safety:` 字段时，服务会按
+`MODERATION_MAX_ATTEMPTS` 重试；达到上限后才按 fail-closed 策略终止流程。
+
+排障命令：
+
+```bash
+systemctl status qwen3guard qwen3guard-healthcheck.timer
+journalctl -u qwen3guard -u short-novel-service --since "30 minutes ago"
+curl --fail --max-time 5 http://127.0.0.1:18080/health
+```
 
 ## 15. 已废弃接口
 
@@ -1339,3 +1432,67 @@ sequenceDiagram
 ```
 
 AI 后台补图谱仍通过同一个 `KnowledgeGraphService` 写入。仓储层在 upsert 时检查 `extraction_model=manual`：手工记录保留用户维护的名称、类型、属性、置信度和来源日期，AI 只能新增其他事实，不能覆盖手工记录。模型抽取到相同 `(type, name)` 的节点时会复用手工节点 ID，抽取出的新关系也会连接到该节点，避免形成语义重复的两套节点。
+
+
+## 中英文请求与供应商配置（2026-09-12）
+
+每一次 POST /api/novels/daily/conversation/stream 均可传 language，支持 zh-CN、en-US，
+并接受 zh、en 别名；省略或空值按 zh-CN 处理，不从输入文本、用户画像或上次请求自动推断。
+开始会话、回答澄清、修改大纲、确认生成和重试均应明确传入语言。
+不支持的值返回 SSE error，code=UNSUPPORTED_LANGUAGE，且不创建会话或调用模型。
+
+语言只控制本次新生成的澄清卡、大纲及正文。中文大纲也可以确认生成英文正文。
+已保存的大纲、历史小说和幂等回放不自动翻译；需要另一语言的新内容时使用新的 message_id，
+执行对应的生成动作。选项 value、JSON 字段名、type、错误码保持稳定。
+调试页面和服务端固定流程提示仍使用中文，本次不做整站界面翻译。
+
+新会话仍保存提示词快照；后续请求语言相同时默认复用原会话快照，
+语言不同时使用该语言的当前默认模板。显式 prompt_overrides 优先，
+但保留服务端指定的输出语言约束。每次请求的模型/温度仍沿用原接口语义：
+只在新会话时选定，后续动作不修改会话模型。
+
+示例：
+```json
+{"user_id":"u1","message_id":"start-en-1","query":"今天项目汇报很顺利","language":"en-US"}
+```
+
+### 分语言提示词
+
+GET /api/novels/daily/conversation/debug-config?language=en-US
+读取英文提示词、默认模型和温度，不返回供应商密钥。
+
+PUT 同一路径需要 X-API-Token：
+```json
+{"language":"en-US","default_model":"deepseek-v4-flash","default_temperature":0.7,
+ "prompts":{"novel_system":"Write an approximately 900-word English short story..."}}
+```
+只更新提供的提示词键；中英文配置相互独立，保存在 novel_runtime_config，
+旧中文配置保持原键。中文目标1500字符，范围1300-1700；英文目标900词，范围750-1050。
+novel_start、novel_done 新增 language、length_target、length_unit；
+novel_done 新增 actual_length。character_count 保留兼容，英文展示应使用 actual_length/words。
+target_chinese_characters 仅中文发送。长度为目标与完成后统计，不保证模型精确达到。
+
+### 供应商配置（全局，需鉴权）
+
+GET /api/novels/daily/conversation/provider-settings
+```json
+{"base_url":"https://api.example.com/v1","api_key_configured":true,"thinking_mode":"disabled"}
+```
+
+PUT 同一路径：
+```json
+{"base_url":"https://api.example.com/v1","api_key":"<NEW_PROVIDER_KEY>","thinking_mode":"disabled"}
+```
+base_url 支持 API 根地址及完整 /chat/completions 地址。
+api_key 省略或留空保留原值；更换主机/端口必须显式填写新密钥。
+thinking_mode 支持 disabled、enabled、omit；omit 不发送 thinking 扩展字段。
+格式错误返回 HTTP 400 / INVALID_PROVIDER_SETTINGS。
+配置保存到服务端 novel_provider_settings，由 Flyway V5 创建；未配置时沿用环境变量。
+新发起的模型调用读取保存值，已在执行的调用使用开始时的配置。
+API Key 只写不回显，不进入提示词快照、SSE 或浏览器持久存储；
+数据库备份需按凭证数据保护，当前实现为服务端数据库保存，不是浏览器保存。
+供应商配置影响所有用户的后续模型调用，也包括后台记忆更新；不改变本地安全模型的地址和密钥配置。
+默认模型在分语言调试配置中保存，供应商配置中不重复保存 model。
+
+敏感词和 QwenGuard 链路继续启用；原中文词库不会因选择英文而跳过。
+本次没有新增完整英文词库，也没有对所有英文风控类别做覆盖率认证。
