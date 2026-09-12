@@ -18,6 +18,10 @@ await page.route('**/api/**', async route => {
     response = {language,default_model:'test-model',default_temperature:.7,persisted:true,
       prompts:{clarification_system:language === 'en-US' ? 'English clarification' : '中文澄清',novel_system:'Novel prompt'},
       model_suggestions:['test-model']};
+  } else if (url.pathname.endsWith('/provider-settings/test')) {
+    const body = req.postDataJSON();
+    assert.equal(body.model,'test-model');
+    response = {ok:true,code:'OK',message:'连接成功',elapsed_ms:123,upstream_status:200};
   } else if (url.pathname.endsWith('/provider-settings')) {
     if(req.method() === 'PUT') providerSaved = req.postDataJSON();
     response = {base_url:'https://example.test/v1',api_key_configured:true,thinking_mode:'omit'};
@@ -37,6 +41,9 @@ try {
   await page.locator('#apiToken').fill('test-service-token');
   await page.locator('#providerUrl').fill('https://example.test/v1');
   await page.locator('#providerKey').fill('test-secret');
+  await page.locator('#testProvider').click();
+  await page.waitForFunction(() => document.querySelector('#providerTestResult').textContent.includes('123 ms'));
+  assert.equal(providerSaved, undefined);
   await page.locator('#saveProvider').click();
   await page.waitForFunction(() => document.querySelector('#providerKey').value === '');
   assert.equal(providerSaved.api_key,'test-secret');

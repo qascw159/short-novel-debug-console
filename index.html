@@ -716,6 +716,8 @@
         <label class="field-label" for="thinkingMode" style="margin-top:13px">思考参数</label>
         <select id="thinkingMode" class="field-input"><option value="disabled">关闭</option><option value="enabled">开启</option><option value="omit">不发送（供应商默认）</option></select>
         <button id="saveProvider" class="btn" type="button" style="margin-top:10px"><i data-lucide="save"></i><span>保存供应商设置（全局）</span></button>
+        <button id="testProvider" class="btn" type="button" style="margin-top:10px"><i data-lucide="plug-zap"></i><span>测试连接（不保存）</span></button>
+        <div id="providerTestResult" role="status" class="field-help" style="margin-top:8px;overflow-wrap:anywhere"></div>
         <label class="field-label" for="modelInput" style="margin-top:13px">模型 <span class="field-help">支持输入自定义 model ID</span></label>
         <input id="modelInput" class="field-input" list="modelOptions" autocomplete="off">
         <datalist id="modelOptions"></datalist>
@@ -1956,6 +1958,28 @@
       $('providerKeyState').textContent = config.api_key_configured ? '已配置（不回显）' : '未配置';
     } catch (error) { showToast(error.message); }
   }
+
+  $('testProvider').addEventListener('click', async () => {
+    if (!el.apiToken.value.trim()) return showToast('连接测试需要服务 API Token');
+    const button = $('testProvider');
+    const result = $('providerTestResult');
+    button.disabled = true;
+    result.textContent = '正在测试连接…';
+    try {
+      const response = await fetch(`${API_BASE}/provider-settings/test`, {
+        method: 'POST', headers: apiHeaders('application/json'),
+        signal: AbortSignal.timeout(25000),
+        body: JSON.stringify({base_url: $('providerUrl').value.trim() || null,
+          api_key: $('providerKey').value || null, model: el.model.value.trim(),
+          thinking_mode: $('thinkingMode').value})
+      });
+      if (!response.ok) throw new Error(response.status === 401 ? '服务 API Token 不正确' : `测试失败 HTTP ${response.status}`);
+      const data = await response.json();
+      result.textContent = `${data.ok ? '通过' : '失败'} · ${data.message} · ${data.elapsed_ms} ms${data.ok ? '' : ' · ' + data.code}`;
+    } catch (error) {
+      result.textContent = error.name === 'TimeoutError' ? '测试超时，请稍后重试' : error.message;
+    } finally { button.disabled = false; }
+  });
 
   $('saveProvider').addEventListener('click', async () => {
     if (!el.apiToken.value.trim()) return showToast('保存供应商设置需要服务 API Token');

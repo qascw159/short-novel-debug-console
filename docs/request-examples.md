@@ -1,0 +1,104 @@
+# 请求示例与供应商连接测试
+
+服务地址：http://49.232.138.53:8010
+所有业务请求携带 X-API-Token: <SERVICE_API_TOKEN> 和 Content-Type: application/json。
+服务 API Token 与模型供应商 API Key 是两个不同的凭证。
+
+## 会话请求
+
+POST /api/novels/daily/conversation/stream
+Accept: text/event-stream
+
+新建会话：
+```json
+{
+  "user_id": "user_001",
+  "message_id": "msg_start_001",
+  "query": "今天我的方案被同事质疑，后来我用数据证明了自己",
+  "language": "en-US",
+  "model": "deepseek-v4-flash",
+  "temperature": 0.7,
+  "prompt_overrides": {}
+}
+```
+
+user_id、query 为新会话必填。message_id 建议必传，用户级幂等；
+同一请求重试用相同 ID，新动作使用新 ID。
+language 支持 zh-CN / en-US（及 zh / en 别名），每次独立处理，省略默认中文。
+model、temperature、prompt_overrides 可省略，采用对应语言的默认配置。
+供应商地址和 Key 通过配置接口设置，不放进会话请求。
+force_regenerate 已废弃，无需传递。
+
+以下 session_id 使用上一次 SSE 返回值。
+
+回答澄清：
+```json
+{"user_id":"user_001","message_id":"msg_answer_001","session_id":"sess_xxx","language":"en-US","action":"answer_clarification","payload":{"answer":"是同事质疑了我的项目方案，我想写成温暖的职场成长故事"}}
+```
+
+修改大纲：
+```json
+{"user_id":"user_001","message_id":"msg_modify_001","session_id":"sess_xxx","language":"en-US","action":"modify_outline","payload":{"feedback":"结尾更温暖，不要惩罚同事"}}
+```
+
+确认大纲，流式生成正文：
+```json
+{"user_id":"user_001","message_id":"msg_confirm_001","session_id":"sess_xxx","language":"en-US","action":"confirm_outline"}
+```
+
+失败后重试生成（会话需为 GENERATION_FAILED）：
+```json
+{"user_id":"user_001","message_id":"msg_retry_001","session_id":"sess_xxx","language":"en-US","action":"retry_generation"}
+```
+
+后续动作仍使用会话原模型和温度，language 按当前请求。
+幂等回放不翻译已存在的内容；不自动翻译历史小说。
+查询会话：GET /api/novels/daily/conversation/sessions/sess_xxx?user_id=user_001
+
+## 供应商连接测试
+
+POST /api/novels/daily/conversation/provider-settings/test
+```json
+{
+  "base_url": "https://api.example.com/v1",
+  "api_key": "<PROVIDER_API_KEY>",
+  "model": "deepseek-v4-flash",
+  "thinking_mode": "disabled"
+}
+```
+
+model 必填。base_url、api_key、thinking_mode 可省略，沿用当前服务端配置。
+更换主机或端口时必须提供新 Key，防止旧密钥发送给新供应商。
+thinking_mode: disabled、enabled、omit（不发送 thinking 字段）。
+支持根地址和完整 /chat/completions 地址。
+
+测试会发起一次真实但很短的非流式模型请求（max_tokens=32），可能消耗少量额度。
+不会保存草稿配置、创建小说会话或返回供应商原始响应/密钥。
+请求总超时20秒，连接超时5秒。测试通过表明地址、鉴权、模型和普通文本接口可用，
+不等于完整验证长文本、SSE、安全审核和服务并发。
+
+返回示例（已完成的测试返回 HTTP 200，成功与否看 ok）：
+```json
+{"ok":true,"code":"OK","message":"连接成功，模型已返回文本","elapsed_ms":1234,"upstream_status":200}
+```
+
+失败 code：INVALID_TEST_SETTINGS、PROVIDER_AUTH_FAILED、PROVIDER_NOT_FOUND、
+PROVIDER_RATE_LIMITED、PROVIDER_HTTP_ERROR、PROVIDER_TIMEOUT、PROVIDER_INTERRUPTED、
+PROVIDER_INVALID_RESPONSE、PROVIDER_CONNECTION_FAILED。
+缺少或错误服务 Token 仍返回 HTTP 401。
+
+## 保存供应商与提示词
+
+PUT /api/novels/daily/conversation/provider-settings
+```json
+{"base_url":"https://api.example.com/v1","api_key":"<PROVIDER_API_KEY>","thinking_mode":"disabled"}
+```
+保存后全局生效，Key 不回显；留空保留当前 Key。测试不等同保存。
+GET 同一路径读取 base_url、api_key_configured、thinking_mode。
+
+PUT /api/novels/daily/conversation/debug-config
+```json
+{"language":"en-US","default_model":"deepseek-v4-flash","default_temperature":0.7,"prompts":{"novel_system":"Write an English short story of approximately 900 words based on the confirmed outline."}}
+```
+GET /api/novels/daily/conversation/debug-config?language=en-US
+读取对应语言的默认模型、温度和六类提示词。

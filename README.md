@@ -71,3 +71,7 @@ flowchart LR
 ```bash
 npm run check
 ```
+
+## Request Examples
+
+See [request examples and provider connection test](docs/request-examples.md) for Chinese/English conversation requests, provider configuration, and the non-persistent connection test endpoint.
