@@ -718,6 +718,8 @@
         <button id="saveProvider" class="btn" type="button" style="margin-top:10px"><i data-lucide="save"></i><span>保存供应商设置（全局）</span></button>
         <button id="testProvider" class="btn" type="button" style="margin-top:10px"><i data-lucide="plug-zap"></i><span>测试连接（不保存）</span></button>
         <div id="providerTestResult" role="status" class="field-help" style="margin-top:8px;overflow-wrap:anywhere"></div>
+        <label class="field-label" for="userProfileInput" style="margin-top:13px">本次用户画像（JSON，可选）</label>
+        <textarea id="userProfileInput" class="field-input" rows="4" spellcheck="false" placeholder='{"occupation":"designer","interests":["photography"]}'></textarea>
         <label class="field-label" for="modelInput" style="margin-top:13px">模型 <span class="field-help">支持输入自定义 model ID</span></label>
         <input id="modelInput" class="field-input" list="modelOptions" autocomplete="off">
         <datalist id="modelOptions"></datalist>
@@ -1554,6 +1556,7 @@
     el.statusDot.className = 'status-dot';
     el.statusText.textContent = '就绪';
     el.model.disabled = false;
+    $('userProfileInput').disabled = false;
     el.userId.disabled = false;
     el.tempRange.disabled = false;
     el.tempNumber.disabled = false;
@@ -1565,6 +1568,7 @@
     state.prompts[state.activePrompt] = el.prompt.value;
     el.userId.disabled = true;
     el.model.disabled = true;
+    $('userProfileInput').disabled = true;
     el.tempRange.disabled = true;
     el.tempNumber.disabled = true;
     el.prompt.disabled = true;
@@ -1918,6 +1922,15 @@
     if (!query || state.busy) return;
     const userId = el.userId.value.trim();
     if (!userId) return showToast('用户 ID 不能为空');
+    let userProfile;
+    try {
+      const rawProfile = $('userProfileInput').value.trim();
+      if (rawProfile) {
+        userProfile = JSON.parse(rawProfile);
+        if (!userProfile || typeof userProfile !== 'object' || Array.isArray(userProfile)
+            || JSON.stringify(userProfile).length > 16000) throw new Error();
+      }
+    } catch (_) { return showToast('用户画像需为有效 JSON 对象，长度不超过16000字符'); }
     state.userId = userId;
     localStorage.setItem('novel_debug_user_id', state.userId);
     state.prompts[state.activePrompt] = el.prompt.value;
@@ -1927,6 +1940,7 @@
       user_id: state.userId,
       message_id: `web_${Date.now().toString(36)}`,
       query,
+      user_profile: userProfile,
       model: el.model.value.trim(),
       temperature: Number(el.tempNumber.value),
       prompt_overrides: state.prompts

@@ -102,3 +102,43 @@ PUT /api/novels/daily/conversation/debug-config
 ```
 GET /api/novels/daily/conversation/debug-config?language=en-US
 读取对应语言的默认模型、温度和六类提示词。
+
+
+## 会话用户画像 user_profile（2026-09-13）
+
+POST /api/novels/daily/conversation/stream 新增可选 user_profile，类型为 JSON 对象。
+调用方可在首次请求、回答澄清或修改大纲时提供，服务保存到本次会话的 user_profile 字段；
+省略或 null 保留原值，提供新对象整体替换，{} 清除外部画像内容。
+对象序列化后最多16000字符，错误类型/超长返回 SSE error / INVALID_USER_PROFILE。
+相同 message_id 的幂等重试不会重复替换画像。
+查询会话响应新增 user_profile，旧会话为 null。
+
+示例：
+```json
+{
+  "user_id": "user_001",
+  "message_id": "msg_profile_001",
+  "query": "把我今天的项目挫折写成温暖的成长故事",
+  "language": "zh-CN",
+  "user_profile": {
+    "age_range": "25-34",
+    "occupation": "product designer",
+    "personality_traits": ["thoughtful", "persistent"],
+    "interests": ["photography", "travel"],
+    "content_preferences": {
+      "genre": "realistic workplace fiction",
+      "tone": "warm",
+      "ending": "positive"
+    }
+  }
+}
+```
+
+生成和修改大纲时，英文提示词同时包含历史画像和本次传入画像。
+优先级：本次明确需求/修改意见 > 调用方画像 > 历史画像；人物、场景、情绪转折和结尾按相关信息个性化。
+该入参作为数据处理，不作为模型系统指令，不直接覆盖长期画像或关系图谱。
+正文依据已确认大纲生成；若确认大纲时才传入新画像，不会自动重写已有大纲，
+应先通过 modify_outline 生成新大纲再确认。
+当前 language 仍只控制输出语言，画像字段值可以是中文或英文。
+调试台新增“本次用户画像”JSON输入框，在新建会话时提交。
+Flyway V7新增会话JSON列，不改变历史画像数据。

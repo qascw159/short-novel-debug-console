@@ -50,10 +50,12 @@ try {
   await page.locator('#saveDefaults').click();
   await page.waitForTimeout(100);
   assert.equal(defaultSaved.language,'en-US');
+  await page.locator('#userProfileInput').fill(JSON.stringify({occupation:'designer'}));
   await page.locator('#queryInput').fill('今天工作很开心');
   await page.locator('#sendQuery').click();
   await page.waitForFunction(() => document.body.textContent.includes('What happened?'));
   assert.equal(requestSent.language,'en-US');
+  assert.equal(requestSent.user_profile.occupation,'designer');
   assert(!JSON.stringify(requestSent).includes('test-secret'));
   assert(!await page.evaluate(() => JSON.stringify(localStorage).includes('test-secret')));
   await page.locator('#settings').evaluate(el => el.scrollTop = 0);
